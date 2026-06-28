@@ -13,3 +13,7 @@ output "api_endpoint" {
 output "stage_name" {
   value = aws_apigatewayv2_stage.default.name
 }
+
+output "access_log_group_name" {
+  value = aws_cloudwatch_log_group.api_gateway.name
+}
