@@ -100,4 +100,15 @@ resource "aws_instance" "this" {
   }
 
   tags = merge(var.tags, { Name = var.name })
+
+  lifecycle {
+    # The AMI data source uses most_recent = true, so when Amazon publishes a
+    # newer AL2023 image the resolved AMI id changes. Because `ami` is immutable
+    # on aws_instance, that would force a destroy+recreate on the next apply.
+    # For long-lived hosts (e.g. the Jenkins controller/agent, which may even run
+    # the apply themselves) that silent replacement is dangerous. Ignore drift on
+    # `ami` so a published image never triggers an unplanned replacement; AMI
+    # upgrades are then a deliberate action (bump var.ami_id or taint).
+    ignore_changes = [ami]
+  }
 }
