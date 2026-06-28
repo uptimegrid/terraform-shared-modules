@@ -1,169 +1,38 @@
-# Operational dashboard that surfaces the key signals for the weather API:
-# at-a-glance totals (requests, errors, error rate, latency), time series for
-# request volume/errors and latency, plus Logs Insights views of the
-# application, API Gateway access logs and the EKS control plane. Built as code
-# so the evidence is reproducible and version-controlled rather than hand-drawn
-# in the console.
-resource "aws_cloudwatch_dashboard" "this" {
-  dashboard_name = "${var.name_prefix}-dashboard-01"
+# Generic CloudWatch dashboard renderer. The module owns layout (it computes
+# each widget's x/y from the row order and widget widths so callers never deal
+# with coordinates) and the dashboard resource itself. Widget content is fully
+# caller-defined: every widget passes through a raw CloudWatch `properties`
+# object, so the same module can render an API dashboard, a database dashboard,
+# an alarm overview, etc. without any change here.
+locals {
+  # Top of each row = sum of the heights of all preceding rows.
+  row_y = [
+    for r, _ in var.rows :
+    r == 0 ? 0 : sum([for prev in slice(var.rows, 0, r) : prev.height])
+  ]
 
-  dashboard_body = jsonencode({
-    widgets = [
-      {
-        type   = "text"
-        x      = 0
-        y      = 0
-        width  = 24
-        height = 2
-        properties = {
-          markdown = "# ${var.name_prefix} - Max Weather API\nKey operational metrics for the public API Gateway endpoint and the application running on EKS."
-        }
-      },
-
-      # --- At-a-glance totals over the selected time range ---
-      {
-        type   = "metric"
-        x      = 0
-        y      = 2
-        width  = 6
-        height = 4
-        properties = {
-          title   = "Total requests"
-          region  = var.region
-          view    = "singleValue"
-          stat    = "Sum"
-          period  = 300
-          metrics = [["AWS/ApiGateway", "Count", "ApiId", var.api_id, "Stage", var.api_stage]]
-        }
-      },
-      {
-        type   = "metric"
-        x      = 6
-        y      = 2
-        width  = 6
-        height = 4
-        properties = {
-          title   = "Total 5xx errors"
-          region  = var.region
-          view    = "singleValue"
-          stat    = "Sum"
-          period  = 300
-          metrics = [["AWS/ApiGateway", "5xx", "ApiId", var.api_id, "Stage", var.api_stage]]
-        }
-      },
-      {
-        type   = "metric"
-        x      = 12
-        y      = 2
-        width  = 6
-        height = 4
-        properties = {
-          title  = "Error rate %"
-          region = var.region
-          view   = "singleValue"
-          period = 300
-          metrics = [
-            [{ expression = "100*(m2/m1)", label = "Error rate %", id = "e1" }],
-            ["AWS/ApiGateway", "Count", "ApiId", var.api_id, "Stage", var.api_stage, { id = "m1", stat = "Sum", visible = false }],
-            ["AWS/ApiGateway", "5xx", "ApiId", var.api_id, "Stage", var.api_stage, { id = "m2", stat = "Sum", visible = false }],
-          ]
-        }
-      },
-      {
-        type   = "metric"
-        x      = 18
-        y      = 2
-        width  = 6
-        height = 4
-        properties = {
-          title   = "Avg latency (ms)"
-          region  = var.region
-          view    = "singleValue"
-          stat    = "Average"
-          period  = 300
-          metrics = [["AWS/ApiGateway", "Latency", "ApiId", var.api_id, "Stage", var.api_stage]]
-        }
-      },
-
-      # --- Time series ---
-      {
-        type   = "metric"
-        x      = 0
-        y      = 6
-        width  = 12
-        height = 6
-        properties = {
-          title  = "API requests and errors"
-          region = var.region
-          view   = "timeSeries"
-          stat   = "Sum"
-          period = 60
-          metrics = [
-            ["AWS/ApiGateway", "Count", "ApiId", var.api_id, "Stage", var.api_stage, { label = "Requests" }],
-            ["AWS/ApiGateway", "4xx", "ApiId", var.api_id, "Stage", var.api_stage, { label = "4xx" }],
-            ["AWS/ApiGateway", "5xx", "ApiId", var.api_id, "Stage", var.api_stage, { label = "5xx" }],
-          ]
-        }
-      },
-      {
-        type   = "metric"
-        x      = 12
-        y      = 6
-        width  = 12
-        height = 6
-        properties = {
-          title  = "Latency (ms)"
-          region = var.region
-          view   = "timeSeries"
-          period = 60
-          metrics = [
-            ["AWS/ApiGateway", "Latency", "ApiId", var.api_id, "Stage", var.api_stage, { stat = "Average", label = "Latency avg" }],
-            ["AWS/ApiGateway", "Latency", "ApiId", var.api_id, "Stage", var.api_stage, { stat = "p99", label = "Latency p99" }],
-            ["AWS/ApiGateway", "IntegrationLatency", "ApiId", var.api_id, "Stage", var.api_stage, { stat = "Average", label = "Integration latency avg" }],
-          ]
-        }
-      },
-
-      # --- Logs Insights ---
-      {
-        type   = "log"
-        x      = 0
-        y      = 12
-        width  = 24
-        height = 6
-        properties = {
-          title  = "Application weather requests"
-          region = var.region
-          view   = "table"
-          query  = "SOURCE '${var.application_log_group_name}' | fields @timestamp, @message | sort @timestamp desc | limit 50"
-        }
-      },
-      {
-        type   = "log"
-        x      = 0
-        y      = 18
-        width  = 24
-        height = 6
-        properties = {
-          title  = "API Gateway access logs by status"
-          region = var.region
-          view   = "table"
-          query  = "SOURCE '${var.access_log_group_name}' | stats count(*) as requests by status | sort requests desc"
-        }
-      },
-      {
-        type   = "log"
-        x      = 0
-        y      = 24
-        width  = 24
-        height = 6
-        properties = {
-          title  = "EKS control-plane logs"
-          region = var.region
-          view   = "table"
-          query  = "SOURCE '${var.cluster_log_group_name}' | fields @timestamp, @logStream, @message | sort @timestamp desc | limit 50"
-        }
-      },
+  widgets = flatten([
+    for r, row in var.rows : [
+      for c, w in row.widgets : {
+        type   = w.type
+        width  = w.width
+        height = row.height
+        # x = sum of the widths of the widgets to the left in this row.
+        x = c == 0 ? 0 : sum([for prev in slice(row.widgets, 0, c) : prev.width])
+        y = local.row_y[r]
+        # Inject the default region for non-text widgets (text widgets take no
+        # region). A widget that sets its own region keeps it, because the
+        # caller-provided properties win in the merge.
+        properties = merge(
+          (w.type != "text" && var.region != null) ? tomap({ region = var.region }) : tomap({}),
+          w.properties,
+        )
+      }
     ]
-  })
+  ])
+}
+
+resource "aws_cloudwatch_dashboard" "this" {
+  dashboard_name = var.dashboard_name
+  dashboard_body = jsonencode({ widgets = local.widgets })
 }
