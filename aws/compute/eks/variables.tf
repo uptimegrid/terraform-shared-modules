@@ -75,3 +75,21 @@ variable "cluster_admin_principal_arns" {
   description = "IAM principal ARNs granted EKS cluster-admin access (e.g. the Jenkins agent role)."
   default     = []
 }
+
+variable "cluster_sg_ingress_rules" {
+  description = <<-EOT
+    Extra TCP ingress rules to add to the cluster security group, keyed by a
+    stable logical name. The module owns this security group, so callers grant
+    trusted security groups access (e.g. the Jenkins agent reaching the API
+    server on 443, or the API Gateway VPC Link reaching the NodePort range)
+    through this input instead of attaching aws_security_group_rule resources in
+    the environment composition.
+  EOT
+  type = map(object({
+    description              = string
+    from_port                = number
+    to_port                  = number
+    source_security_group_id = string
+  }))
+  default = {}
+}

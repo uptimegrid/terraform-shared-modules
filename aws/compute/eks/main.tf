@@ -46,6 +46,22 @@ resource "aws_security_group" "cluster" {
   }
 }
 
+# Caller-supplied ingress rules on the cluster security group (which this module
+# owns). Lets trusted security groups reach the cluster — e.g. the Jenkins agent
+# on 443 (private API endpoint) or the API Gateway VPC Link on the NodePort range
+# — without the environment composition attaching rules to a module-owned SG.
+resource "aws_security_group_rule" "cluster_ingress" {
+  for_each = var.cluster_sg_ingress_rules
+
+  type                     = "ingress"
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.cluster.id
+  description              = each.value.description
+  from_port                = each.value.from_port
+  to_port                  = each.value.to_port
+  source_security_group_id = each.value.source_security_group_id
+}
+
 resource "aws_eks_cluster" "this" {
   name     = var.cluster_name
   role_arn = aws_iam_role.cluster.arn
