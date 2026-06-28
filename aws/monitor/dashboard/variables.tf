@@ -28,3 +28,8 @@ variable "access_log_group_name" {
   type        = string
   description = "API Gateway access log group name for the Logs Insights widget."
 }
+
+variable "cluster_log_group_name" {
+  type        = string
+  description = "EKS control-plane log group name for the Logs Insights widget."
+}

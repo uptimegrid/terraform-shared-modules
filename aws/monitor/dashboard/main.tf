@@ -1,7 +1,9 @@
 # Operational dashboard that surfaces the key signals for the weather API:
-# request volume and error rate, latency, plus log views for the application
-# and the API Gateway access logs. Built as code so the evidence is
-# reproducible and version-controlled rather than hand-drawn in the console.
+# at-a-glance totals (requests, errors, error rate, latency), time series for
+# request volume/errors and latency, plus Logs Insights views of the
+# application, API Gateway access logs and the EKS control plane. Built as code
+# so the evidence is reproducible and version-controlled rather than hand-drawn
+# in the console.
 resource "aws_cloudwatch_dashboard" "this" {
   dashboard_name = "${var.name_prefix}-dashboard-01"
 
@@ -17,10 +19,77 @@ resource "aws_cloudwatch_dashboard" "this" {
           markdown = "# ${var.name_prefix} - Max Weather API\nKey operational metrics for the public API Gateway endpoint and the application running on EKS."
         }
       },
+
+      # --- At-a-glance totals over the selected time range ---
       {
         type   = "metric"
         x      = 0
         y      = 2
+        width  = 6
+        height = 4
+        properties = {
+          title   = "Total requests"
+          region  = var.region
+          view    = "singleValue"
+          stat    = "Sum"
+          period  = 300
+          metrics = [["AWS/ApiGateway", "Count", "ApiId", var.api_id, "Stage", var.api_stage]]
+        }
+      },
+      {
+        type   = "metric"
+        x      = 6
+        y      = 2
+        width  = 6
+        height = 4
+        properties = {
+          title   = "Total 5xx errors"
+          region  = var.region
+          view    = "singleValue"
+          stat    = "Sum"
+          period  = 300
+          metrics = [["AWS/ApiGateway", "5xx", "ApiId", var.api_id, "Stage", var.api_stage]]
+        }
+      },
+      {
+        type   = "metric"
+        x      = 12
+        y      = 2
+        width  = 6
+        height = 4
+        properties = {
+          title  = "Error rate %"
+          region = var.region
+          view   = "singleValue"
+          period = 300
+          metrics = [
+            [{ expression = "100*(m2/m1)", label = "Error rate %", id = "e1" }],
+            ["AWS/ApiGateway", "Count", "ApiId", var.api_id, "Stage", var.api_stage, { id = "m1", stat = "Sum", visible = false }],
+            ["AWS/ApiGateway", "5xx", "ApiId", var.api_id, "Stage", var.api_stage, { id = "m2", stat = "Sum", visible = false }],
+          ]
+        }
+      },
+      {
+        type   = "metric"
+        x      = 18
+        y      = 2
+        width  = 6
+        height = 4
+        properties = {
+          title   = "Avg latency (ms)"
+          region  = var.region
+          view    = "singleValue"
+          stat    = "Average"
+          period  = 300
+          metrics = [["AWS/ApiGateway", "Latency", "ApiId", var.api_id, "Stage", var.api_stage]]
+        }
+      },
+
+      # --- Time series ---
+      {
+        type   = "metric"
+        x      = 0
+        y      = 6
         width  = 12
         height = 6
         properties = {
@@ -39,7 +108,7 @@ resource "aws_cloudwatch_dashboard" "this" {
       {
         type   = "metric"
         x      = 12
-        y      = 2
+        y      = 6
         width  = 12
         height = 6
         properties = {
@@ -54,10 +123,12 @@ resource "aws_cloudwatch_dashboard" "this" {
           ]
         }
       },
+
+      # --- Logs Insights ---
       {
         type   = "log"
         x      = 0
-        y      = 8
+        y      = 12
         width  = 24
         height = 6
         properties = {
@@ -70,7 +141,7 @@ resource "aws_cloudwatch_dashboard" "this" {
       {
         type   = "log"
         x      = 0
-        y      = 14
+        y      = 18
         width  = 24
         height = 6
         properties = {
@@ -78,6 +149,19 @@ resource "aws_cloudwatch_dashboard" "this" {
           region = var.region
           view   = "table"
           query  = "SOURCE '${var.access_log_group_name}' | stats count(*) as requests by status | sort requests desc"
+        }
+      },
+      {
+        type   = "log"
+        x      = 0
+        y      = 24
+        width  = 24
+        height = 6
+        properties = {
+          title  = "EKS control-plane logs"
+          region = var.region
+          view   = "table"
+          query  = "SOURCE '${var.cluster_log_group_name}' | fields @timestamp, @logStream, @message | sort @timestamp desc | limit 50"
         }
       },
     ]
